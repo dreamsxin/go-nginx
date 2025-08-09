@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
@@ -56,7 +57,7 @@ func main() {
 	metricsMux.Handle("/metrics", promhttp.Handler())
 
 	metricsServer := &http.Server{
-		Addr:    ":9090",
+		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: metricsMux,
 	}
 	go func() {
