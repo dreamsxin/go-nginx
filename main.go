@@ -61,7 +61,7 @@ func main() {
 		Handler: metricsMux,
 	}
 	go func() {
-		log.Printf("Metrics server starting on :9090")
+		log.Printf("Metrics server starting on %s", metricsServer.Addr)
 		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Metrics server failed to start: %v", err)
 		}
