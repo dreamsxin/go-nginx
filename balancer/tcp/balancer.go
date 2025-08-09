@@ -1,6 +1,8 @@
 package tcp
 
 import (
+	"fmt"
+	"log/slog"
 	"net"
 	"strconv"
 	"sync"
@@ -8,7 +10,6 @@ import (
 	"time"
 
 	"github.com/dreamsxin/go-nginx/config"
-	"github.com/dreamsxin/go-nginx/util"
 )
 
 // TCP负载均衡器
@@ -18,6 +19,7 @@ type Balancer struct {
 	strategy          Strategy
 	mutex             sync.RWMutex
 	healthCheckTicker *time.Ticker
+	listener          net.Listener
 }
 
 // 后端服务器
@@ -71,13 +73,14 @@ func (b *Balancer) ListenAndServe() error {
 		return err
 	}
 	defer listener.Close()
+	b.listener = listener
 
-	util.LogInfof("TCP balancer listening on port %d", b.config.Listen)
+	slog.Info(fmt.Sprintf("TCP balancer listening on port %d", b.config.Listen))
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			util.LogErrorf("Accept error: %v", err)
+			slog.Error(fmt.Sprintf("Accept error: %v", err))
 			return err
 		}
 
@@ -106,7 +109,7 @@ func (b *Balancer) handleConnection(clientConn net.Conn, backend *Backend) {
 	// 连接后端服务器，设置超时
 	backendConn, err := net.DialTimeout("tcp", backend.address, 5*time.Second)
 	if err != nil {
-		util.LogErrorf("Failed to connect to backend %s: %v", backend.address, err)
+		slog.Error(fmt.Sprintf("Failed to connect to backend %s: %v", backend.address, err))
 		b.markBackendFailed(backend.address)
 		return
 	}
@@ -176,7 +179,7 @@ func (b *Balancer) markBackendFailed(address string) {
 
 			if backend.failCount >= int32(backend.config.MaxFails) {
 				backend.alive = false
-				util.LogWarnf("TCP backend %s marked as down after %d failures", address, backend.failCount)
+				slog.Warn(fmt.Sprintf("TCP backend %s marked as down after %d failures", address, backend.failCount))
 			}
 			return
 		}
@@ -206,7 +209,7 @@ func (b *Balancer) runHealthChecks() {
 		go func(backend *Backend) {
 			conn, err := net.DialTimeout("tcp", backend.address, 5*time.Second)
 			if err != nil {
-				util.LogErrorf("TCP health check failed for %s: %v", backend.address, err)
+				slog.Error(fmt.Sprintf("TCP health check failed for %s: %v", backend.address, err))
 				backend.mutex.Lock()
 				backend.alive = false
 				backend.failCount++
@@ -215,7 +218,7 @@ func (b *Balancer) runHealthChecks() {
 				conn.Close()
 				backend.mutex.Lock()
 				if !backend.alive {
-					util.LogInfof("TCP backend %s recovered", backend.address)
+					slog.Info(fmt.Sprintf("TCP backend %s recovered", backend.address))
 					backend.alive = true
 					backend.failCount = 0
 				}
@@ -229,5 +232,8 @@ func (b *Balancer) runHealthChecks() {
 func (b *Balancer) Stop() {
 	if b.healthCheckTicker != nil {
 		b.healthCheckTicker.Stop()
+	}
+	if b.listener != nil {
+		b.listener.Close()
 	}
 }

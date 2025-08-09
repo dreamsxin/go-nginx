@@ -1,7 +1,9 @@
 package main
 
 import (
+	"flag"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,15 +14,20 @@ import (
 )
 
 func main() {
-	// 初始化日志
-	util.InitLogger()
-	log.Println("Starting go-nginx...")
+	// 新增：解析命令行参数
+	var configPath string
+	flag.StringVar(&configPath, "config", "config.yaml", "path to config file")
+	flag.Parse()
 
 	// 加载配置
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	// 初始化日志
+	util.InitLogger(cfg)
+	log.Println("Starting go-nginx...")
 
 	// 创建服务器实例
 	server := core.NewServer(cfg)
@@ -34,9 +41,9 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	util.LogInfof("Shutting down server...")
+	slog.Info("Shutting down server...")
 
 	// 停止服务器
 	server.Stop()
-	util.LogInfof("Server exiting")
+	slog.Info("Server exiting")
 }

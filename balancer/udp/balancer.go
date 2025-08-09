@@ -1,6 +1,8 @@
 package udp
 
 import (
+	"fmt"
+	"log/slog"
 	"net"
 	"strconv"
 	"sync"
@@ -8,7 +10,6 @@ import (
 	"time"
 
 	"github.com/dreamsxin/go-nginx/config"
-	"github.com/dreamsxin/go-nginx/util"
 )
 
 // UDP负载均衡器
@@ -76,13 +77,13 @@ func (b *Balancer) ListenAndServe() error {
 	}
 	defer b.conn.Close()
 
-	util.LogInfof("UDP balancer listening on port %d", b.config.Listen)
+	slog.Info(fmt.Sprintf("UDP balancer listening on port %d", b.config.Listen))
 
 	buf := make([]byte, 4096)
 	for {
 		n, clientAddr, err := b.conn.ReadFromUDP(buf)
 		if err != nil {
-			util.LogErrorf("UDP read error: %v", err)
+			slog.Error(fmt.Sprintf("UDP read error: %v", err))
 			return err
 		}
 
@@ -104,7 +105,7 @@ func (b *Balancer) handlePacket(clientAddr *net.UDPAddr, backend *Backend, data 
 
 	backendAddr, err := net.ResolveUDPAddr("udp", backend.address)
 	if err != nil {
-		util.LogErrorf("Failed to resolve backend address %s: %v", backend.address, err)
+		slog.Error(fmt.Sprintf("Failed to resolve backend address %s: %v", backend.address, err))
 		b.markBackendFailed(backend.address)
 		return
 	}
@@ -115,7 +116,7 @@ func (b *Balancer) handlePacket(clientAddr *net.UDPAddr, backend *Backend, data 
 	// 发送到后端
 	n, err := b.conn.WriteToUDP(data, backendAddr)
 	if err != nil || n != len(data) {
-		util.LogErrorf("Failed to send UDP packet to %s: %v", backend.address, err)
+		slog.Error(fmt.Sprintf("Failed to send UDP packet to %s: %v", backend.address, err))
 		b.markBackendFailed(backend.address)
 		return
 	}
@@ -143,7 +144,7 @@ func (b *Balancer) markBackendFailed(address string) {
 			// 如果失败次数超过阈值，标记为不可用
 			if backend.failCount >= int32(backend.config.MaxFails) {
 				backend.alive = false
-				util.LogWarnf("Backend %s marked as down after %d failures", address, backend.failCount)
+				slog.Warn(fmt.Sprintf("Backend %s marked as down after %d failures", address, backend.failCount))
 			}
 			backend.mutex.Unlock()
 			return
@@ -185,7 +186,7 @@ func (b *Balancer) runHealthChecks() {
 			// UDP健康检查：发送空数据包并等待响应
 			conn, err := net.DialTimeout("udp", backend.address, 2*time.Second)
 			if err != nil {
-				util.LogErrorf("Health check failed for %s: %v", backend.address, err)
+				slog.Error(fmt.Sprintf("Health check failed for %s: %v", backend.address, err))
 				backend.alive = false
 				backend.failCount++
 				return
@@ -196,7 +197,7 @@ func (b *Balancer) runHealthChecks() {
 			healthCheckData := []byte("healthcheck")
 			_, err = conn.Write(healthCheckData)
 			if err != nil {
-				util.LogErrorf("Health check failed for %s: %v", backend.address, err)
+				slog.Error(fmt.Sprintf("Health check failed for %s: %v", backend.address, err))
 				backend.alive = false
 				backend.failCount++
 				return
@@ -209,7 +210,7 @@ func (b *Balancer) runHealthChecks() {
 			buf := make([]byte, 1024)
 			_, err = conn.Read(buf)
 			if err != nil {
-				util.LogErrorf("Health check failed for %s: %v", backend.address, err)
+				slog.Error(fmt.Sprintf("Health check failed for %s: %v", backend.address, err))
 				backend.alive = false
 				backend.failCount++
 				return
@@ -217,7 +218,7 @@ func (b *Balancer) runHealthChecks() {
 
 			// 如果之前是不可用状态，现在恢复可用
 			if !backend.alive {
-				util.LogInfof("Backend %s recovered", backend.address)
+				slog.Info(fmt.Sprintf("Backend %s recovered", backend.address))
 				backend.alive = true
 				backend.failCount = 0
 			}

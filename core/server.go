@@ -1,22 +1,25 @@
 package core
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	balancerhttp "github.com/dreamsxin/go-nginx/balancer/http"
 	"github.com/dreamsxin/go-nginx/balancer/tcp"
 	"github.com/dreamsxin/go-nginx/balancer/udp"
 	"github.com/dreamsxin/go-nginx/config"
-	"github.com/dreamsxin/go-nginx/util"
 )
 
 // Server 服务器实例
 type Server struct {
-	config *config.Config
-	// 添加HTTP服务器实例引用
+	config       *config.Config
 	httpBalancer *balancerhttp.Balancer
+	httpServer   *http.Server
 	tcpBalancer  *tcp.Balancer
 	udpBalancer  *udp.Balancer
 	wg           sync.WaitGroup
@@ -39,7 +42,7 @@ func (s *Server) Start() error {
 		}
 		s.httpBalancer = balancer
 
-		httpServer := &http.Server{
+		s.httpServer = &http.Server{
 			Addr:    ":" + strconv.Itoa(s.config.Balancer.HTTP.Listen),
 			Handler: balancer,
 		}
@@ -47,9 +50,9 @@ func (s *Server) Start() error {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			util.LogInfof("Starting HTTP balancer on port %d", s.config.Balancer.HTTP.Listen)
-			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				util.LogErrorf("HTTP balancer error: %v", err)
+			slog.Info(fmt.Sprintf("Starting HTTP balancer on port %d", s.config.Balancer.HTTP.Listen))
+			if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				slog.Error(fmt.Sprintf("HTTP balancer error: %v", err))
 			}
 		}()
 	}
@@ -65,9 +68,9 @@ func (s *Server) Start() error {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			util.LogInfof("Starting TCP balancer on port %d", s.config.Balancer.TCP.Listen)
+			slog.Info(fmt.Sprintf("Starting TCP balancer on port %d", s.config.Balancer.TCP.Listen))
 			if err := balancer.ListenAndServe(); err != nil {
-				util.LogErrorf("TCP balancer error: %v", err)
+				slog.Error(fmt.Sprintf("TCP balancer error: %v", err))
 			}
 		}()
 	}
@@ -83,9 +86,9 @@ func (s *Server) Start() error {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			util.LogInfof("Starting UDP balancer on port %d", s.config.Balancer.UDP.Listen)
+			slog.Info(fmt.Sprintf("Starting UDP balancer on port %d", s.config.Balancer.UDP.Listen))
 			if err := balancer.ListenAndServe(); err != nil {
-				util.LogErrorf("UDP balancer error: %v", err)
+				slog.Error(fmt.Sprintf("UDP balancer error: %v", err))
 			}
 		}()
 	}
@@ -95,6 +98,14 @@ func (s *Server) Start() error {
 
 // Stop 停止服务器
 func (s *Server) Stop() {
+	if s.httpServer != nil {
+		// 新增：优雅关闭HTTP服务器
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.httpServer.Shutdown(ctx); err != nil {
+			slog.Error(fmt.Sprintf("HTTP server shutdown error: %v", err))
+		}
+	}
 	if s.httpBalancer != nil {
 		s.httpBalancer.Stop()
 	}

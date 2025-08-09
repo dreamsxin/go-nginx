@@ -1,6 +1,8 @@
 package http
 
 import (
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -9,7 +11,6 @@ import (
 	"time"
 
 	"github.com/dreamsxin/go-nginx/config"
-	"github.com/dreamsxin/go-nginx/util"
 )
 
 // HTTP负载均衡器
@@ -58,7 +59,7 @@ func NewBalancer(cfg config.HTTPBalancerConfig) (*Balancer, error) {
 
 		// 自定义错误处理
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-			util.LogErrorf("Proxy error to %s: %v", backendCfg.Address, err)
+			slog.Error(fmt.Sprintf("Proxy error to %s: %v", backendCfg.Address, err))
 			b.markBackendFailed(backendCfg.Address)
 			http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
 		}
@@ -117,6 +118,7 @@ func (b *Balancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No available backend servers", http.StatusServiceUnavailable)
 		return
 	}
+	slog.Info("Proxying request to", backend.config.Address)
 
 	// 更新连接数
 	atomic.AddInt32(&backend.connections, 1)
@@ -144,7 +146,7 @@ func (b *Balancer) markBackendFailed(address string) {
 			// 如果失败次数超过阈值，标记为不可用
 			if backend.failCount >= int32(backend.config.MaxFails) {
 				backend.alive = false
-				util.LogWarnf("Backend %s marked as down after %d failures", address, backend.failCount)
+				slog.Warn(fmt.Sprintf("Backend %s marked as down after %d failures", address, backend.failCount))
 			}
 			return
 		}
@@ -182,9 +184,9 @@ func (b *Balancer) runHealthChecks() {
 			resp, err := client.Head("http://" + backend.config.Address)
 			if err != nil || resp.StatusCode < 200 || resp.StatusCode >= 500 {
 				if err != nil {
-					util.LogErrorf("Health check failed for %s: %v", backend.config.Address, err)
+					slog.Error(fmt.Sprintf("Health check failed for %s: %v", backend.config.Address, err))
 				} else {
-					util.LogErrorf("Health check failed for %s: status code %d", backend.config.Address, resp.StatusCode)
+					slog.Error(fmt.Sprintf("Health check failed for %s: status code %d", backend.config.Address, resp.StatusCode))
 				}
 				backend.mutex.Lock()
 				backend.alive = false
@@ -195,7 +197,7 @@ func (b *Balancer) runHealthChecks() {
 				backend.mutex.Lock()
 				// 如果之前是不可用状态，现在恢复可用
 				if !backend.alive {
-					util.LogInfof("Backend %s recovered", backend.config.Address)
+					slog.Info(fmt.Sprintf("Backend %s recovered", backend.config.Address))
 					backend.alive = true
 					backend.failCount = 0
 				}
