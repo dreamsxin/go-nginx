@@ -263,3 +263,29 @@ func (b *Balancer) Stop() {
 		b.listener.Close()
 	}
 }
+
+// UpdateConfig 更新TCP负载均衡器配置
+func (b *Balancer) UpdateConfig(newConfig config.TCPBalancerConfig) error {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+
+	// 更新后端服务器
+	for _, backendCfg := range newConfig.Backends {
+		existing := false
+		for _, oldBackend := range b.backends {
+			if oldBackend.address == backendCfg.Address {
+				existing = true
+				break
+			}
+		}
+		if !existing {
+			b.backends = append(b.backends, &Backend{
+				address: backendCfg.Address,
+				config:  backendCfg,
+				alive:   true,
+			})
+		}
+	}
+
+	return nil
+}

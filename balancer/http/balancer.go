@@ -241,3 +241,54 @@ func (b *Balancer) Stop() {
 		b.healthCheckTicker.Stop()
 	}
 }
+
+// UpdateConfig 更新负载均衡器配置
+func (b *Balancer) UpdateConfig(newConfig config.HTTPBalancerConfig) error {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+
+	// 更新后端服务器
+	for _, backendCfg := range newConfig.Backends {
+		// 检查是否已存在该后端
+		existing := false
+		for _, oldBackend := range b.backends {
+			if oldBackend.config.Address == backendCfg.Address {
+				existing = true
+				break
+			}
+		}
+		if !existing {
+
+			url, err := url.Parse("http://" + backendCfg.Address)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Invalid backend address: %s", backendCfg.Address))
+				continue
+			}
+
+			proxy := httputil.NewSingleHostReverseProxy(url)
+			originalDirector := proxy.Director
+			proxy.Director = func(req *http.Request) {
+				originalDirector(req)
+				// 添加X-Forwarded-For头
+				req.Header.Set("X-Forwarded-For", req.RemoteAddr)
+				req.Header.Set("X-Forwarded-Proto", req.URL.Scheme)
+			}
+
+			// 自定义错误处理
+			proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+				slog.Error(fmt.Sprintf("Proxy error to %s: %v", backendCfg.Address, err))
+				b.markBackendFailed(backendCfg.Address)
+				http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
+			}
+
+			b.backends = append(b.backends, &Backend{
+				url:    url,
+				proxy:  proxy,
+				config: backendCfg,
+				alive:  true,
+			})
+		}
+	}
+
+	return nil
+}

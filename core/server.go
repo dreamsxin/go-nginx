@@ -123,3 +123,30 @@ func (s *Server) Stop() {
 	// 等待所有服务goroutine退出
 	s.wg.Wait()
 }
+
+// ReloadConfig 平滑重载配置
+func (s *Server) ReloadConfig(newConfig *config.Config) error {
+	// 动态更新HTTP负载均衡器
+	if s.httpBalancer != nil && newConfig.Balancer.HTTP.Enabled {
+		if err := s.httpBalancer.UpdateConfig(newConfig.Balancer.HTTP); err != nil {
+			return err
+		}
+	}
+
+	// 更新TCP负载均衡器
+	if s.tcpBalancer != nil && newConfig.Balancer.TCP.Enabled {
+		if err := s.tcpBalancer.UpdateConfig(newConfig.Balancer.TCP); err != nil {
+			return err
+		}
+	}
+
+	// 更新UDP负载均衡器
+	if s.udpBalancer != nil && newConfig.Balancer.UDP.Enabled {
+		if err := s.udpBalancer.UpdateConfig(newConfig.Balancer.UDP); err != nil {
+			return err
+		}
+	}
+
+	s.config = newConfig
+	return nil
+}

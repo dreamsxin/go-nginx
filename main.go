@@ -21,11 +21,20 @@ import (
 )
 
 func main() {
-	// 新增：解析命令行参数
 	var configPath string
+	var testConfig bool
 	flag.StringVar(&configPath, "config", "config.yaml", "path to config file")
+	flag.BoolVar(&testConfig, "t", false, "Test configuration and exit")
+	flag.BoolVar(&testConfig, "test-config", false, "Test configuration and exit")
 	flag.Parse()
-
+	if testConfig {
+		_, err := config.LoadConfig(configPath)
+		if err != nil {
+			log.Fatalf("Configuration test failed: %v", err)
+		}
+		log.Println("Configuration file test is successful")
+		os.Exit(0)
+	}
 	// 加载配置
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
@@ -68,20 +77,39 @@ func main() {
 	}()
 
 	// 等待中断信号以优雅关闭服务器
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	slog.Info("Shutting down server...")
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
-	// 停止服务器
-	server.Stop()
+	for {
+		sig := <-signalChan
+		switch sig {
+		case syscall.SIGINT, syscall.SIGTERM:
+			// 原有退出逻辑
+			slog.Info("Shutting down server...")
+			server.Stop()
 
-	// 优雅关闭监控指标服务
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := metricsServer.Shutdown(ctx); err != nil {
-		log.Fatalf("Metrics server forced to shutdown: %v", err)
+			// 优雅关闭监控指标服务
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := metricsServer.Shutdown(ctx); err != nil {
+				log.Fatalf("Metrics server forced to shutdown: %v", err)
+			}
+			log.Printf("Metrics server exiting")
+			slog.Info("Server exiting")
+			return
+		case syscall.SIGHUP:
+			// 新增: 配置重载逻辑
+			slog.Info("Received SIGHUP, reloading configuration...")
+			newCfg, err := config.LoadConfig(configPath)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to reload config: %v", err))
+				continue
+			}
+			if err := server.ReloadConfig(newCfg); err != nil {
+				slog.Error(fmt.Sprintf("Failed to apply new config: %v", err))
+			} else {
+				slog.Info("Configuration reloaded successfully")
+			}
+		}
 	}
-	log.Printf("Metrics server exiting")
-	slog.Info("Server exiting")
 }
