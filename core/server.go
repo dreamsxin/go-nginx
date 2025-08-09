@@ -13,11 +13,14 @@ import (
 	"github.com/dreamsxin/go-nginx/balancer/tcp"
 	"github.com/dreamsxin/go-nginx/balancer/udp"
 	"github.com/dreamsxin/go-nginx/config"
+	"github.com/dreamsxin/go-nginx/monitor"
 )
 
 // Server 服务器实例
 type Server struct {
 	config       *config.Config
+	metrics      *monitor.Metrics
+	statsManager *monitor.StatsManager
 	httpBalancer *balancerhttp.Balancer
 	httpServer   *http.Server
 	tcpBalancer  *tcp.Balancer
@@ -26,9 +29,11 @@ type Server struct {
 }
 
 // NewServer 创建新的服务器实例
-func NewServer(cfg *config.Config) *Server {
+func NewServer(cfg *config.Config, metrics *monitor.Metrics, statsManager *monitor.StatsManager) *Server {
 	return &Server{
-		config: cfg,
+		config:       cfg,
+		metrics:      metrics,
+		statsManager: statsManager,
 	}
 }
 
@@ -36,7 +41,7 @@ func NewServer(cfg *config.Config) *Server {
 func (s *Server) Start() error {
 	// 启动HTTP负载均衡器
 	if s.config.Balancer.HTTP.Enabled {
-		balancer, err := balancerhttp.NewBalancer(s.config.Balancer.HTTP)
+		balancer, err := balancerhttp.NewBalancer(s.config.Balancer.HTTP, s.metrics, s.statsManager)
 		if err != nil {
 			return err
 		}
@@ -59,7 +64,7 @@ func (s *Server) Start() error {
 
 	// 启动TCP负载均衡器
 	if s.config.Balancer.TCP.Enabled {
-		balancer, err := tcp.NewBalancer(s.config.Balancer.TCP)
+		balancer, err := tcp.NewBalancer(s.config.Balancer.TCP, s.metrics, s.statsManager)
 		if err != nil {
 			return err
 		}
@@ -77,7 +82,7 @@ func (s *Server) Start() error {
 
 	// 启动UDP负载均衡器
 	if s.config.Balancer.UDP.Enabled {
-		balancer, err := udp.NewBalancer(s.config.Balancer.UDP)
+		balancer, err := udp.NewBalancer(s.config.Balancer.UDP, s.metrics, s.statsManager)
 		if err != nil {
 			return err
 		}

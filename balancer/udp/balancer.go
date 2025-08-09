@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dreamsxin/go-nginx/config"
+	"github.com/dreamsxin/go-nginx/monitor"
 )
 
 // UDP负载均衡器
@@ -20,6 +21,8 @@ type Balancer struct {
 	mutex             sync.RWMutex
 	healthCheckTicker *time.Ticker
 	conn              *net.UDPConn
+	metrics           *monitor.Metrics
+	statsManager      *monitor.StatsManager
 }
 
 // 后端服务器
@@ -34,9 +37,11 @@ type Backend struct {
 }
 
 // 新建UDP负载均衡器
-func NewBalancer(cfg config.UDPBalancerConfig) (*Balancer, error) {
+func NewBalancer(cfg config.UDPBalancerConfig, metrics *monitor.Metrics, statsManager *monitor.StatsManager) (*Balancer, error) {
 	b := &Balancer{
-		config: cfg,
+		config:       cfg,
+		metrics:      metrics,
+		statsManager: statsManager,
 	}
 
 	// 初始化后端服务器
@@ -101,6 +106,8 @@ func (b *Balancer) ListenAndServe() error {
 
 // 处理UDP数据包
 func (b *Balancer) handlePacket(clientAddr *net.UDPAddr, backend *Backend, data []byte) {
+	b.statsManager.UpdateConnectionStats(backend.address, 1)
+	defer b.statsManager.UpdateConnectionStats(backend.address, -1)
 	// 增加连接计数
 	atomic.AddInt32(&backend.connections, 1)
 	defer atomic.AddInt32(&backend.connections, -1)

@@ -15,9 +15,14 @@ type Config struct {
 
 // ServerConfig 服务器配置
 type ServerConfig struct {
-	Port    int           `mapstructure:"port"`
-	Workers int           `mapstructure:"workers"`
-	Timeout ServerTimeout `mapstructure:"timeout"`
+	Port       int           `mapstructure:"port"`
+	Workers    int           `mapstructure:"workers"`
+	Timeout    ServerTimeout `mapstructure:"timeout"`
+	Monitoring struct {
+		Enabled     bool   `yaml:"enabled"`
+		MetricsPath string `yaml:"metrics_path"`
+		MetricsPort int    `yaml:"metrics_port"`
+	} `yaml:"monitoring"`
 }
 
 // ServerTimeout 超时配置

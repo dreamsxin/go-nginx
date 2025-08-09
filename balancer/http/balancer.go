@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dreamsxin/go-nginx/config"
+	"github.com/dreamsxin/go-nginx/monitor"
 )
 
 // HTTP负载均衡器
@@ -21,6 +22,8 @@ type Balancer struct {
 	sessionStore      SessionStore
 	mutex             sync.RWMutex
 	healthCheckTicker *time.Ticker
+	metrics           *monitor.Metrics
+	statsManager      *monitor.StatsManager
 }
 
 // 后端服务器
@@ -36,9 +39,11 @@ type Backend struct {
 }
 
 // 新建HTTP负载均衡器
-func NewBalancer(cfg config.HTTPBalancerConfig) (*Balancer, error) {
+func NewBalancer(cfg config.HTTPBalancerConfig, metrics *monitor.Metrics, statsManager *monitor.StatsManager) (*Balancer, error) {
 	b := &Balancer{
-		config: cfg,
+		config:       cfg,
+		metrics:      metrics,
+		statsManager: statsManager,
 	}
 
 	// 初始化后端服务器
@@ -113,6 +118,11 @@ func (b *Balancer) NextBackend(r *http.Request) *Backend {
 
 // 处理HTTP请求
 func (b *Balancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		b.metrics.RecordRequest(duration, false)
+	}()
 	backend := b.NextBackend(r)
 	if backend == nil {
 		http.Error(w, "No available backend servers", http.StatusServiceUnavailable)
@@ -129,6 +139,10 @@ func (b *Balancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		b.sessionStore.SaveBackend(w, r, backend)
 	}
 
+	b.statsManager.UpdateBackendRequests(backend.url.String(), false)
+	b.statsManager.UpdateConnectionStats(backend.url.String(), 1)
+	defer b.statsManager.UpdateConnectionStats(backend.url.String(), -1)
+
 	// 转发请求
 	backend.proxy.ServeHTTP(w, r)
 }
@@ -142,6 +156,8 @@ func (b *Balancer) markBackendFailed(address string) {
 		if backend.url.Host == address {
 			backend.failCount++
 			backend.lastFailTime = time.Now()
+
+			b.statsManager.UpdateBackendFailures(address)
 
 			// 如果失败次数超过阈值，标记为不可用
 			if backend.failCount >= int32(backend.config.MaxFails) {

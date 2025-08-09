@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dreamsxin/go-nginx/config"
+	"github.com/dreamsxin/go-nginx/monitor"
 )
 
 // TCP负载均衡器
@@ -20,6 +21,8 @@ type Balancer struct {
 	mutex             sync.RWMutex
 	healthCheckTicker *time.Ticker
 	listener          net.Listener
+	metrics           *monitor.Metrics
+	statsManager      *monitor.StatsManager
 }
 
 // 后端服务器
@@ -34,9 +37,11 @@ type Backend struct {
 }
 
 // 新建TCP负载均衡器
-func NewBalancer(cfg config.TCPBalancerConfig) (*Balancer, error) {
+func NewBalancer(cfg config.TCPBalancerConfig, metrics *monitor.Metrics, statsManager *monitor.StatsManager) (*Balancer, error) {
 	b := &Balancer{
-		config: cfg,
+		config:       cfg,
+		metrics:      metrics,
+		statsManager: statsManager,
 	}
 
 	// 初始化后端服务器
@@ -106,6 +111,8 @@ func (b *Balancer) ListenAndServe() error {
 
 // 处理TCP连接
 func (b *Balancer) handleConnection(clientConn net.Conn, backend *Backend) {
+	b.statsManager.UpdateConnectionStats(backend.address, 1)
+	defer b.statsManager.UpdateConnectionStats(backend.address, -1)
 	defer clientConn.Close()
 
 	// 设置客户端连接超时
