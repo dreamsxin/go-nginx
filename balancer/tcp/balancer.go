@@ -61,7 +61,9 @@ func NewBalancer(cfg config.TCPBalancerConfig) (*Balancer, error) {
 	}
 
 	// 启动健康检查
-	b.startHealthChecks()
+	if cfg.HealthCheck.Enabled {
+		b.startHealthChecks()
+	}
 
 	return b, nil
 }
@@ -81,6 +83,13 @@ func (b *Balancer) ListenAndServe() error {
 		conn, err := listener.Accept()
 		if err != nil {
 			slog.Error(fmt.Sprintf("Accept error: %v", err))
+			// 判断错误类型
+			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+				slog.Error(fmt.Sprintf("Accept timeout error: %v", err))
+				continue
+			} else {
+				slog.Error(fmt.Sprintf("Accept error: %v", err))
+			}
 			return err
 		}
 
@@ -188,7 +197,12 @@ func (b *Balancer) markBackendFailed(address string) {
 
 // 启动健康检查
 func (b *Balancer) startHealthChecks() {
-	b.healthCheckTicker = time.NewTicker(10 * time.Second)
+	// 使用配置的检查间隔，默认为10秒
+	interval := b.config.HealthCheck.Interval
+	if interval == 0 {
+		interval = 10 * time.Second
+	}
+	b.healthCheckTicker = time.NewTicker(interval)
 	go func() {
 		for range b.healthCheckTicker.C {
 			b.runHealthChecks()
@@ -207,7 +221,12 @@ func (b *Balancer) runHealthChecks() {
 		}
 
 		go func(backend *Backend) {
-			conn, err := net.DialTimeout("tcp", backend.address, 5*time.Second)
+			// 使用配置的超时值，默认为5秒
+			timeout := b.config.HealthCheck.Timeout
+			if timeout == 0 {
+				timeout = 5 * time.Second
+			}
+			conn, err := net.DialTimeout("tcp", backend.address, timeout)
 			if err != nil {
 				slog.Error(fmt.Sprintf("TCP health check failed for %s: %v", backend.address, err))
 				backend.mutex.Lock()

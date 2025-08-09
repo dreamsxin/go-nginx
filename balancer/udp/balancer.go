@@ -59,7 +59,9 @@ func NewBalancer(cfg config.UDPBalancerConfig) (*Balancer, error) {
 	}
 
 	// 启动健康检查
-	b.startHealthChecks()
+	if cfg.HealthCheck.Enabled {
+		b.startHealthChecks()
+	}
 
 	return b, nil
 }
@@ -183,28 +185,38 @@ func (b *Balancer) runHealthChecks() {
 				return
 			}
 
+			// 使用配置的超时值，默认为2秒
+			timeout := b.config.HealthCheck.Timeout
+			if timeout == 0 {
+				timeout = 2 * time.Second
+			}
 			// UDP健康检查：发送空数据包并等待响应
-			conn, err := net.DialTimeout("udp", backend.address, 2*time.Second)
+			conn, err := net.DialTimeout("udp", backend.address, timeout)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Health check failed for %s: %v", backend.address, err))
 				backend.alive = false
 				backend.failCount++
+				backend.lastFailTime = time.Now()
 				return
 			}
 			defer conn.Close()
 
-			// 发送健康检查数据包
-			healthCheckData := []byte("healthcheck")
+			// 发送健康检查数据包，默认为"healthcheck"
+			healthCheckData := []byte(b.config.HealthCheck.Send)
+			if len(healthCheckData) == 0 {
+				healthCheckData = []byte("healthcheck")
+			}
 			_, err = conn.Write(healthCheckData)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Health check failed for %s: %v", backend.address, err))
 				backend.alive = false
 				backend.failCount++
+				backend.lastFailTime = time.Now()
 				return
 			}
 
 			// 设置读取超时
-			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			conn.SetReadDeadline(time.Now().Add(timeout))
 
 			// 读取响应
 			buf := make([]byte, 1024)
@@ -213,6 +225,7 @@ func (b *Balancer) runHealthChecks() {
 				slog.Error(fmt.Sprintf("Health check failed for %s: %v", backend.address, err))
 				backend.alive = false
 				backend.failCount++
+				backend.lastFailTime = time.Now()
 				return
 			}
 

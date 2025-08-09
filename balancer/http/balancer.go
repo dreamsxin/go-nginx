@@ -118,7 +118,7 @@ func (b *Balancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No available backend servers", http.StatusServiceUnavailable)
 		return
 	}
-	slog.Info("Proxying request to", backend.config.Address)
+	slog.Info(fmt.Sprintf("Proxying request to %s", backend.config.Address))
 
 	// 更新连接数
 	atomic.AddInt32(&backend.connections, 1)
@@ -155,8 +155,13 @@ func (b *Balancer) markBackendFailed(address string) {
 
 // 启动健康检查
 func (b *Balancer) startHealthChecks() {
+	// 使用配置的检查间隔，默认为10秒
+	interval := b.config.HealthCheck.Interval
+	if interval == 0 {
+		interval = 10 * time.Second
+	}
 	// 每10秒执行一次健康检查
-	b.healthCheckTicker = time.NewTicker(10 * time.Second)
+	b.healthCheckTicker = time.NewTicker(interval)
 	go func() {
 		for range b.healthCheckTicker.C {
 			b.runHealthChecks()
@@ -182,18 +187,25 @@ func (b *Balancer) runHealthChecks() {
 			}
 
 			resp, err := client.Head("http://" + backend.config.Address)
-			if err != nil || resp.StatusCode < 200 || resp.StatusCode >= 500 {
-				if err != nil {
-					slog.Error(fmt.Sprintf("Health check failed for %s: %v", backend.config.Address, err))
-				} else {
-					slog.Error(fmt.Sprintf("Health check failed for %s: status code %d", backend.config.Address, resp.StatusCode))
-				}
+			if err != nil {
+				slog.Error(fmt.Sprintf("Health check failed for %s: %v", backend.config.Address, err))
 				backend.mutex.Lock()
 				backend.alive = false
 				backend.failCount++
+				backend.lastFailTime = time.Now()
+				backend.mutex.Unlock()
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 500 {
+
+				slog.Error(fmt.Sprintf("Health check failed for %s: status code %d", backend.config.Address, resp.StatusCode))
+				backend.mutex.Lock()
+				backend.alive = false
+				backend.failCount++
+				backend.lastFailTime = time.Now()
 				backend.mutex.Unlock()
 			} else {
-				resp.Body.Close()
 				backend.mutex.Lock()
 				// 如果之前是不可用状态，现在恢复可用
 				if !backend.alive {

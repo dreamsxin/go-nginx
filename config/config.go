@@ -65,14 +65,16 @@ type HTTPBalancerConfig struct {
 	Strategy           string                   `mapstructure:"strategy"`
 	SessionPersistence SessionPersistenceConfig `mapstructure:"session_persistence"`
 	Backends           []BackendConfig          `mapstructure:"backends"`
+	HealthCheck        HealthCheckConfig        `mapstructure:"health_check"`
 }
 
 // TCP负载均衡配置
 type TCPBalancerConfig struct {
-	Enabled  bool            `mapstructure:"enabled"`
-	Listen   int             `mapstructure:"listen"`
-	Strategy string          `mapstructure:"strategy"`
-	Backends []BackendConfig `mapstructure:"backends"`
+	Enabled     bool              `mapstructure:"enabled"`
+	Listen      int               `mapstructure:"listen"`
+	Strategy    string            `mapstructure:"strategy"`
+	Backends    []BackendConfig   `mapstructure:"backends"`
+	HealthCheck HealthCheckConfig `mapstructure:"health_check"` // 添加健康检查配置
 }
 
 // UDP负载均衡配置
@@ -110,4 +112,6 @@ type HealthCheckConfig struct {
 	FailTimeout        time.Duration `mapstructure:"fail_timeout"`
 	HealthyThreshold   int           `mapstructure:"healthy_threshold"`
 	UnhealthyThreshold int           `mapstructure:"unhealthy_threshold"`
+	Send               string        `mapstructure:"send"`
+	Receive            string        `mapstructure:"receive"`
 }
