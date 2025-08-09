@@ -1,0 +1,60 @@
+server:
+  port: 8080
+  workers: 4
+  timeout:
+    read: 10s
+    write: 10s
+    idle: 30s
+
+log:
+  level: info
+  output: stdout
+  file: logs/go-nginx.log
+
+# 负载均衡配置
+balancer:
+  http:
+    enabled: true
+    listen: 8080
+    strategy: round_robin  # round_robin, least_conn, ip_hash
+    session_persistence:
+      enabled: true
+      type: cookie
+      cookie_name: GO_NGINX_SESSION
+    backends:
+      - name: server1
+        address: 127.0.0.1:8081
+        weight: 1
+        max_fails: 3
+        fail_timeout: 30s
+      - name: server2
+        address: 127.0.0.1:8082
+        weight: 1
+        max_fails: 3
+        fail_timeout: 30s
+
+  tcp:
+    enabled: true
+    listen: 8083
+    strategy: round_robin
+    backends:
+      - name: tcp_server1
+        address: 127.0.0.1:8084
+        weight: 1
+      - name: tcp_server2
+        address: 127.0.0.1:8085
+        weight: 1
+
+  udp:
+    enabled: true
+    listen: 8086
+    strategy: round_robin
+    backends:
+      - name: udp_server1
+        address: 127.0.0.1:8087
+        weight: 1
+      - name: udp_server2
+        address: 127.0.0.1:8088
+        weight: 1
+
+# 后续会添加更多配置项
